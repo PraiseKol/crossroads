@@ -14,6 +14,7 @@ export async function fetchPairs(category, page = 1, pageSize = 10, excludeId = 
       created_at,
       votes (
         device_id,
+        user_id,
         choice
       )
     `)
@@ -34,10 +35,11 @@ export async function fetchPairs(category, page = 1, pageSize = 10, excludeId = 
     throw error;
   }
 
-  // Normalize: map nested votes -> voters expected by UI
+  // Normalize: separate guest vs signed-in voters
   return (data || []).map((p) => ({
     ...p,
-    voters: Array.isArray(p.votes) ? p.votes : [],
+    guestVoters: Array.isArray(p.votes) ? p.votes.filter(v => v.device_id) : [],
+    userVoters: Array.isArray(p.votes) ? p.votes.filter(v => v.user_id) : [],
   }));
 }
 
@@ -55,6 +57,7 @@ export async function fetchPairById(id) {
       created_at,
       votes (
         device_id,
+        user_id,
         choice
       )
     `)
@@ -68,16 +71,22 @@ export async function fetchPairById(id) {
 
   return {
     ...data,
-    voters: Array.isArray(data?.votes) ? data.votes : [],
+    guestVoters: Array.isArray(data?.votes) ? data.votes.filter(v => v.device_id) : [],
+    userVoters: Array.isArray(data?.votes) ? data.votes.filter(v => v.user_id) : [],
   };
 }
 
 // Cast a vote (device_id is text)
 export async function castVote(pairId, choice, deviceId) {
+  // 🚨 Defensive check: ensure guests provide a device ID
+  if (!deviceId && !(await supabase.auth.getUser()).data?.user) {
+    throw new Error("Guests must provide a device ID to vote.");
+  }
+
   const { data, error } = await supabase.rpc("cast_vote", {
-    pair_id: pairId,   // must match Postgres function signature
-    choice: choice,    // 'A' or 'B'
-    device_id: deviceId,
+    p_pair_id: pairId,
+    p_choice: choice,
+    p_device_id: deviceId,
   });
 
   if (error) {

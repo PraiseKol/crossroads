@@ -1,6 +1,7 @@
 import { useEffect, useState, forwardRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { castVote } from "../lib/api";
+import SignInModal from "./SignInModal";
 
 const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
   const queryClient = useQueryClient();
@@ -12,7 +13,17 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
   });
   const [copied, setCopied] = useState(false);
 
-  // ✅ Check if this device already voted
+  const [isSignedIn, setIsSignedIn] = useState(false); // start as false
+
+  useEffect(() => {
+    const user = localStorage.getItem("signed_in_user");
+    if (user) {
+      setIsSignedIn(true);
+    }
+  }, []);
+
+  const [showSignIn, setShowSignIn] = useState(false);
+
   useEffect(() => {
     let deviceId = localStorage.getItem("device_id");
     if (!deviceId) {
@@ -32,6 +43,18 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
     }
   }, [pair]);
 
+  const checkVoteLimit = () => {
+    if (isSignedIn) return true;
+
+    let voteCount = parseInt(localStorage.getItem("vote_count") || "0", 10);
+    if (voteCount >= 10) {
+      setShowSignIn(true);
+      return false;
+    }
+    localStorage.setItem("vote_count", voteCount + 1);
+    return true;
+  };
+
   const mutation = useMutation({
     mutationFn: async ({ pairId, choice }) => {
       let deviceId = localStorage.getItem("device_id");
@@ -47,7 +70,6 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
       const prevPairs = queryClient.getQueryData(["pairs"]);
       const prevPair = queryClient.getQueryData(["pair", pairId]);
 
-      // ✅ Optimistic update
       setHasVoted(true);
       setUserChoice(choice);
       setLocalVotes((prev) => ({
@@ -81,13 +103,25 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
       return { prevPairs, prevPair };
     },
     onError: (err, variables, context) => {
+      
+      // revert cache
       if (context?.prevPairs) {
         queryClient.setQueryData(["pairs"], context.prevPairs);
       }
       if (context?.prevPair) {
         queryClient.setQueryData(["pair", variables.pairId], context.prevPair);
       }
+
+      // check if error is "Guest vote limit reached"
+      if (
+        err?.message?.includes("Guest vote limit reached") ||
+        err?.data?.message?.includes("Guest vote limit reached")
+      ) {
+       
+        setShowSignIn(true);
+      }
     },
+
     onSuccess: (row) => {
       if (row) {
         setLocalVotes({
@@ -108,7 +142,6 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
           old ? { ...old, votes_a: row.votes_a, votes_b: row.votes_b } : old
         );
       }
-      // 🔔 Notify parent Feed
       if (onVoted) {
         onVoted(row.id);
       }
@@ -116,8 +149,10 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
   });
 
   const total = localVotes.votes_a + localVotes.votes_b;
-  const percentA = total > 0 ? Math.round((localVotes.votes_a / total) * 100) : 0;
-  const percentB = total > 0 ? Math.round((localVotes.votes_b / total) * 100) : 0;
+  const percentA =
+    total > 0 ? Math.round((localVotes.votes_a / total) * 100) : 0;
+  const percentB =
+    total > 0 ? Math.round((localVotes.votes_b / total) * 100) : 0;
 
   const sharePoll = () => {
     const pollUrl = `${window.location.origin}/poll/${pair.id}`;
@@ -127,9 +162,15 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
     });
   };
 
+  const handleVote = (choice) => {
+    if (!checkVoteLimit()) return;
+    setUserChoice(choice);
+    mutation.mutate({ pairId: pair.id, choice });
+  };
+
   return (
     <div
-      ref={ref} // ✅ works now with forwardRef
+      ref={ref}
       id={`poll-${pair.id}`}
       data-voted={hasVoted ? "true" : "false"}
       className={`poll-card bg-white p-6 rounded-2xl shadow-md w-full transition ${
@@ -139,13 +180,9 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
       <h3 className="text-lg font-semibold mb-4 text-center">Choose one</h3>
 
       <div className="flex flex-col sm:flex-row gap-4">
-        {/* Option A */}
         <button
           disabled={hasVoted || mutation.isLoading}
-          onClick={() => {
-            setUserChoice("A");
-            mutation.mutate({ pairId: pair.id, choice: "A" });
-          }}
+          onClick={() => handleVote("A")}
           className={`flex-1 p-6 rounded-xl border text-lg font-medium transition duration-200 ${
             hasVoted
               ? userChoice === "A"
@@ -162,13 +199,9 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
           )}
         </button>
 
-        {/* Option B */}
         <button
           disabled={hasVoted || mutation.isLoading}
-          onClick={() => {
-            setUserChoice("B");
-            mutation.mutate({ pairId: pair.id, choice: "B" });
-          }}
+          onClick={() => handleVote("B")}
           className={`flex-1 p-6 rounded-xl border text-lg font-medium transition duration-200 ${
             hasVoted
               ? userChoice === "B"
@@ -186,7 +219,6 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
         </button>
       </div>
 
-      {/* Total votes */}
       {hasVoted && (
         <p className="mt-4 text-center text-gray-600 text-sm">
           Total votes: {total}
@@ -198,9 +230,18 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
           {copied ? "Link copied!" : "Share this poll"}
         </button>
       </div>
+
+      {showSignIn && !isSignedIn && (
+        <SignInModal
+          onClose={() => setShowSignIn(false)}
+          onSignIn={(email) => {
+            setIsSignedIn(true);
+            console.log("Signed in:", email);
+          }}
+        />
+      )}
     </div>
   );
 };
 
-// ✅ Wrap with forwardRef so Feed can scroll
 export default forwardRef(PollCard);
