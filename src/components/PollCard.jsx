@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { castVote } from "../lib/api";
 import SignInModal from "./SignInModal";
 
-const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
+const PollCard = ({ pair, highlight = false, onVoted, isSignedIn, setIsSignedIn }, ref) => {
   const queryClient = useQueryClient();
   const [hasVoted, setHasVoted] = useState(false);
   const [userChoice, setUserChoice] = useState(null);
@@ -12,18 +12,9 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
     votes_b: pair.votes_b,
   });
   const [copied, setCopied] = useState(false);
-
-  const [isSignedIn, setIsSignedIn] = useState(false); // start as false
-
-  useEffect(() => {
-    const user = localStorage.getItem("signed_in_user");
-    if (user) {
-      setIsSignedIn(true);
-    }
-  }, []);
-
   const [showSignIn, setShowSignIn] = useState(false);
 
+  // Check if user already voted via device_id
   useEffect(() => {
     let deviceId = localStorage.getItem("device_id");
     if (!deviceId) {
@@ -43,6 +34,7 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
     }
   }, [pair]);
 
+  // Limit guest votes
   const checkVoteLimit = () => {
     if (isSignedIn) return true;
 
@@ -66,7 +58,6 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
     },
     onMutate: async ({ pairId, choice }) => {
       await queryClient.cancelQueries({ queryKey: ["pairs"] });
-
       const prevPairs = queryClient.getQueryData(["pairs"]);
       const prevPair = queryClient.getQueryData(["pair", pairId]);
 
@@ -103,25 +94,17 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
       return { prevPairs, prevPair };
     },
     onError: (err, variables, context) => {
-      
-      // revert cache
-      if (context?.prevPairs) {
-        queryClient.setQueryData(["pairs"], context.prevPairs);
-      }
-      if (context?.prevPair) {
-        queryClient.setQueryData(["pair", variables.pairId], context.prevPair);
-      }
+      if (context?.prevPairs) queryClient.setQueryData(["pairs"], context.prevPairs);
+      if (context?.prevPair) queryClient.setQueryData(["pair", variables.pairId], context.prevPair);
 
-      // check if error is "Guest vote limit reached"
       if (
-        err?.message?.includes("Guest vote limit reached") ||
-        err?.data?.message?.includes("Guest vote limit reached")
+        (err?.message?.includes("Guest vote limit reached") ||
+          err?.data?.message?.includes("Guest vote limit reached")) &&
+        !isSignedIn
       ) {
-       
         setShowSignIn(true);
       }
     },
-
     onSuccess: (row) => {
       if (row) {
         setLocalVotes({
@@ -129,30 +112,21 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
           votes_b: row.votes_b,
         });
 
-        queryClient.setQueryData(["pairs"], (old) => {
-          if (!old) return old;
-          return old.map((p) =>
-            p.id === row.id
-              ? { ...p, votes_a: row.votes_a, votes_b: row.votes_b }
-              : p
-          );
-        });
+        queryClient.setQueryData(["pairs"], (old) =>
+          old ? old.map((p) => (p.id === row.id ? { ...p, votes_a: row.votes_a, votes_b: row.votes_b } : p)) : old
+        );
 
         queryClient.setQueryData(["pair", row.id], (old) =>
           old ? { ...old, votes_a: row.votes_a, votes_b: row.votes_b } : old
         );
       }
-      if (onVoted) {
-        onVoted(row.id);
-      }
+      if (onVoted) onVoted(row.id);
     },
   });
 
   const total = localVotes.votes_a + localVotes.votes_b;
-  const percentA =
-    total > 0 ? Math.round((localVotes.votes_a / total) * 100) : 0;
-  const percentB =
-    total > 0 ? Math.round((localVotes.votes_b / total) * 100) : 0;
+  const percentA = total > 0 ? Math.round((localVotes.votes_a / total) * 100) : 0;
+  const percentB = total > 0 ? Math.round((localVotes.votes_b / total) * 100) : 0;
 
   const sharePoll = () => {
     const pollUrl = `${window.location.origin}/poll/${pair.id}`;
@@ -220,9 +194,7 @@ const PollCard = ({ pair, highlight = false, onVoted }, ref) => {
       </div>
 
       {hasVoted && (
-        <p className="mt-4 text-center text-gray-600 text-sm">
-          Total votes: {total}
-        </p>
+        <p className="mt-4 text-center text-gray-600 text-sm">Total votes: {total}</p>
       )}
 
       <div className="mt-4 text-center">

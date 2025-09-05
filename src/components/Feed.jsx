@@ -2,14 +2,14 @@ import { useState, useRef, useEffect } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchPairs } from "../lib/api";
 import PollCard from "./PollCard";
-import { supabase } from "../lib/supabaseClient"; // ✅ import supabase
+import { supabase } from "../lib/supabaseClient";
 
 const categories = ["All", "General", "Sports", "Music", "Tech"];
 
-export default function Feed({ pinnedPollId = null }) {
+export default function Feed({ pinnedPollId = null, isSignedIn, setIsSignedIn }) {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const queryClient = useQueryClient();
-  const pollRefs = useRef({}); // ✅ store refs for each poll
+  const pollRefs = useRef({});
 
   const {
     data,
@@ -31,7 +31,7 @@ export default function Feed({ pinnedPollId = null }) {
 
   const loadMoreRef = useRef();
 
-  // ✅ Infinite scroll observer
+  // Infinite scroll observer
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -46,7 +46,7 @@ export default function Feed({ pinnedPollId = null }) {
     return () => observer.disconnect();
   }, [fetchNextPage, hasNextPage]);
 
-  // ✅ Supabase realtime subscription
+  // Supabase realtime subscription
   useEffect(() => {
     const channel = supabase
       .channel("pairs-updates")
@@ -56,7 +56,6 @@ export default function Feed({ pinnedPollId = null }) {
         (payload) => {
           const updatedPair = payload.new;
 
-          // Patch infinite query cache (all pages)
           queryClient.setQueryData(
             ["pairs", selectedCategory, pinnedPollId],
             (oldData) => {
@@ -78,7 +77,6 @@ export default function Feed({ pinnedPollId = null }) {
             }
           );
 
-          // Patch single pair cache (if it’s open somewhere else)
           queryClient.setQueryData(["pair", updatedPair.id], (oldPair) => {
             if (!oldPair) return oldPair;
             return {
@@ -96,38 +94,34 @@ export default function Feed({ pinnedPollId = null }) {
     };
   }, [queryClient, selectedCategory, pinnedPollId]);
 
+  // Flatten all pages safely
+  let allPairs = [];
+  if (data?.pages) {
+    allPairs = data.pages.flat();
+  }
 
-    // ✅ Flatten all pages safely
-    let allPairs = [];
-    if (data?.pages) {
-      allPairs = data.pages.flat();
+  // Remove pinned poll from feed
+  let pinnedPoll = null;
+  if (pinnedPollId && allPairs.length > 0) {
+    const index = allPairs.findIndex((p) => p.id === pinnedPollId);
+    if (index >= 0) {
+      pinnedPoll = allPairs.splice(index, 1)[0];
     }
-  
-    // Remove pinned poll from feed to avoid duplication
-    let pinnedPoll = null;
-    if (pinnedPollId && allPairs.length > 0) {
-      const index = allPairs.findIndex((p) => p.id === pinnedPollId);
-      if (index >= 0) {
-        pinnedPoll = allPairs.splice(index, 1)[0];
-      }
-    }
-  
-    // ✅ Reset refs when feed data changes
-    useEffect(() => {
-      pollRefs.current = {};
-    }, [data?.pages]);
-  
-    if (isLoading)
-      return <p className="text-center py-8">Loading polls...</p>;
-    if (error)
-      return (
-        <p className="text-center text-red-500">Something went wrong.</p>
-      );
-  
+  }
 
-  
+  // Reset refs when feed data changes
+  useEffect(() => {
+    pollRefs.current = {};
+  }, [data?.pages]);
 
-  // ✅ Handle vote → scroll to next poll
+  if (isLoading)
+    return <p className="text-center py-8">Loading polls...</p>;
+  if (error)
+    return (
+      <p className="text-center text-red-500">Something went wrong.</p>
+    );
+
+  // Handle vote → scroll to next poll
   const handleVote = (pairId) => {
     const index = allPairs.findIndex((p) => p.id === pairId);
     if (index >= 0 && index < allPairs.length - 1) {
@@ -167,6 +161,8 @@ export default function Feed({ pinnedPollId = null }) {
           pair={pinnedPoll}
           highlight
           onVoted={handleVote}
+          isSignedIn={isSignedIn}
+          setIsSignedIn={setIsSignedIn}
         />
       )}
 
@@ -180,6 +176,8 @@ export default function Feed({ pinnedPollId = null }) {
             ref={(el) => (pollRefs.current[pair.id] = el)}
             pair={pair}
             onVoted={handleVote}
+            isSignedIn={isSignedIn}
+            setIsSignedIn={setIsSignedIn}
           />
         ))
       )}

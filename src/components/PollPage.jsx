@@ -4,7 +4,7 @@ import { fetchPairById } from "../lib/api";
 import PollCard from "./PollCard";
 import Feed from "./Feed";
 
-export default function PollPage() {
+export default function PollPage({ isSignedIn, setIsSignedIn }) {
   const { id } = useParams();
 
   const { data: pair, isLoading, error } = useQuery({
@@ -19,12 +19,17 @@ export default function PollPage() {
   return (
     <div className="w-full max-w-md space-y-6 p-4">
       {/* Pinned/shared poll */}
-      <PollCard pair={pair} highlight />
+      <PollCard
+        pair={pair}
+        highlight
+        isSignedIn={isSignedIn}
+        setIsSignedIn={setIsSignedIn}
+      />
 
       <hr className="my-6 border-gray-300" />
 
       {/* Feed below the shared poll */}
-      <Feed pinnedPollId={id} />
+      <Feed pinnedPollId={id} isSignedIn={isSignedIn} setIsSignedIn={setIsSignedIn} />
     </div>
   );
 }

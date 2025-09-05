@@ -1,10 +1,16 @@
 import { supabase } from "./supabaseClient";
 
 // Fetch polls (pairs) with category filter, pagination, and nested voters
-export async function fetchPairs(category, page = 1, pageSize = 10, excludeId = null) {
+export async function fetchPairs(
+  category,
+  page = 1,
+  pageSize = 10,
+  excludeId = null
+) {
   let query = supabase
     .from("pairs")
-    .select(`
+    .select(
+      `
       id,
       category,
       option_a,
@@ -17,7 +23,8 @@ export async function fetchPairs(category, page = 1, pageSize = 10, excludeId = 
         user_id,
         choice
       )
-    `)
+    `
+    )
     .order("created_at", { ascending: false })
     .range((page - 1) * pageSize, page * pageSize - 1);
 
@@ -36,10 +43,14 @@ export async function fetchPairs(category, page = 1, pageSize = 10, excludeId = 
   }
 
   // Normalize: separate guest vs signed-in voters
+  // After fetching each poll
   return (data || []).map((p) => ({
     ...p,
-    guestVoters: Array.isArray(p.votes) ? p.votes.filter(v => v.device_id) : [],
-    userVoters: Array.isArray(p.votes) ? p.votes.filter(v => v.user_id) : [],
+    guestVoters: Array.isArray(p.votes)
+      ? p.votes.filter((v) => v.device_id)
+      : [],
+    userVoters: Array.isArray(p.votes) ? p.votes.filter((v) => v.user_id) : [],
+    voters: Array.isArray(p.votes) ? p.votes : [], // ✅ add generic voters array
   }));
 }
 
@@ -47,7 +58,8 @@ export async function fetchPairs(category, page = 1, pageSize = 10, excludeId = 
 export async function fetchPairById(id) {
   const { data, error } = await supabase
     .from("pairs")
-    .select(`
+    .select(
+      `
       id,
       category,
       option_a,
@@ -60,7 +72,8 @@ export async function fetchPairById(id) {
         user_id,
         choice
       )
-    `)
+    `
+    )
     .eq("id", id)
     .single();
 
@@ -73,7 +86,9 @@ export async function fetchPairById(id) {
     ...data,
     guestVoters: Array.isArray(data?.votes) ? data.votes.filter(v => v.device_id) : [],
     userVoters: Array.isArray(data?.votes) ? data.votes.filter(v => v.user_id) : [],
+    voters: Array.isArray(data?.votes) ? data.votes : [], // ✅ add generic voters array
   };
+  
 }
 
 // Cast a vote (device_id is text)
